@@ -52,6 +52,16 @@ main{max-width:1100px;margin:0 auto;padding:8px 16px 120px}
 footer{text-align:center;color:var(--mut);padding:20px}
 @media(prefers-reduced-motion:no-preference){.order.novo{animation:pulse 1.6s infinite}}
 @keyframes pulse{50%{box-shadow:0 0 0 7px #7a0c1c11}}
+.tl{list-style:none;margin:10px 0 4px;padding:0}
+.tl li{position:relative;padding:0 0 14px 28px;color:var(--mut);font-size:.92rem}
+.tl li:before{content:"";position:absolute;left:5px;top:5px;width:12px;height:12px;border-radius:50%;background:#fff;border:2px solid var(--line)}
+.tl li:after{content:"";position:absolute;left:10px;top:19px;bottom:-3px;width:2px;background:var(--line)}
+.tl li:last-child:after{display:none}
+.tl li.done{color:var(--ink)}.tl li.done:before{background:var(--ok);border-color:var(--ok)}.tl li.done:after{background:var(--ok)}
+.tl li.now{color:var(--rose2);font-weight:500}.tl li.now:before{background:var(--rose);border-color:var(--rose);box-shadow:0 0 0 4px #7a0c1c26}
+.tl small{display:block;color:var(--mut);font-weight:400}
+.tag.st-ok{background:var(--ok);color:#fff}.tag.st-bad{background:var(--bad);color:#fff}.tag.st-now{background:var(--rose);color:#fff}
+.note{background:var(--bg);border-radius:10px;padding:8px 12px;font-size:.88rem;margin:8px 0}
 </style></head><body><div id="app"></div><div id="modal"></div>
 <script>
 /* ============ CONFIGURAÇÃO ============ */
@@ -84,7 +94,7 @@ const CONFIG={
 /* ======================================= */
 const $=s=>document.querySelector(s),esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const fmt=v=>Number(v||0).toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
-const S={coupons:[],coupon:null,q:"",pid:null,pv:"",pq:1,user:null,profile:null,after:false,period:"all",adminView:false,products:[],orders:[],cart:{},cat:"Todos",admin:false,tab:"pedidos",sound:false};
+const S={myOrders:[],ordErr:false,acctTab:"pedidos",openOrd:{},of:"ativos",coupons:[],coupon:null,q:"",pid:null,pv:"",pq:1,user:null,profile:null,after:false,period:"all",adminView:false,products:[],orders:[],cart:{},cat:"Todos",admin:false,tab:"pedidos",sound:false};
 let fs=null,fb=null;const mem={};
 const store={get(k){try{return JSON.parse(localStorage.getItem(k))}catch(e){return mem[k]||null}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){mem[k]=v}}};
 
@@ -103,6 +113,7 @@ const demo={
   },
   onProducts(f){listeners.products.push(f);f(store.get("products")||[])},
   onOrders(f){listeners.orders.push(f);f(store.get("orders")||[])},
+  onMyOrders(uid,f){const g=a=>f(a.filter(o=>o.uid===uid).sort((x,y)=>y.createdAt-x.createdAt));listeners.orders.push(g);g(store.get("orders")||[]);return()=>{const i=listeners.orders.indexOf(g);if(i>=0)listeners.orders.splice(i,1)}},
   async saveProduct(p){const a=store.get("products")||[];const i=a.findIndex(x=>x.id===p.id);if(i<0){p.id=Date.now().toString(36);a.push(p)}else a[i]=p;store.set("products",a);emit("products",a)},
   async delProduct(id){const a=(store.get("products")||[]).filter(x=>x.id!==id);store.set("products",a);emit("products",a)},
   async placeOrder(o){const a=store.get("products")||[];
@@ -138,6 +149,7 @@ const fire={
   },
   onProducts(f){fs.collection("products").onSnapshot(s=>f(s.docs.map(d=>({...d.data(),id:d.id}))),e=>console.error(e))},
   onOrders(f){fs.collection("orders").orderBy("createdAt","desc").onSnapshot(s=>f(s.docs.map(d=>({...d.data(),id:d.id}))),e=>console.error(e))},
+  onMyOrders(uid,f){return fs.collection("orders").where("uid","==",uid).onSnapshot(s=>f(s.docs.map(d=>({...d.data(),id:d.id})).sort((a,b)=>b.createdAt-a.createdAt)),e=>{console.error(e);f(null)})},
   async saveProduct(p){const id=p.id;const d={...p};delete d.id;id?await fs.collection("products").doc(id).set(d):await fs.collection("products").add(d)},
   async delProduct(id){await fs.collection("products").doc(id).delete()},
   async placeOrder(o){const ids=[...new Set(o.items.map(i=>i.id))],refs=ids.map(id=>fs.collection("products").doc(id)),orf=fs.collection("orders").doc();
@@ -266,10 +278,10 @@ function cartModal(){
   </div></div>`;setAddr()}
 function authModal(mode){const p=S.profile||{};let h;
   const f=(l,n,t,v,x)=>`<label>${l}</label><input name="${n}" type="${t||"text"}" value="${esc(v||"")}" ${x||"required"}>`;
-  if(cust())h=`<h2>Minha conta</h2><form id="pff"><label>E-mail</label><input value="${esc(S.user.email)}" readonly style="background:var(--bg)">${f("Celular (WhatsApp)","phone","tel",p.phone)}
+  if(cust())h=`<h2>Minha conta</h2><div class="tabs"><button type="button" id="ord-tab" data-act="atab" data-v="pedidos" class="${S.acctTab==="pedidos"?"on":""}">Meus pedidos (${S.myOrders.length})</button><button type="button" data-act="atab" data-v="dados" class="${S.acctTab==="dados"?"on":""}">Meus dados</button></div>${S.acctTab==="pedidos"?`<div id="ord-list">${myOrdersHtml()}</div>`:`<form id="pff"><label>E-mail</label><input value="${esc(S.user.email)}" readonly style="background:var(--bg)">${f("Celular (WhatsApp)","phone","tel",p.phone)}
     <label>Senha</label><div class="bar" style="margin:.25em 0 .8em"><span>••••••••</span><button type="button" class="ghost" data-act="chpw">Trocar senha</button></div>
     ${f("Nome (opcional)","name","text",p.name,"data-opt")}<h3 style="margin:14px 0 0">Endereço de entrega</h3><p style="margin:0;color:var(--mut);font-size:.85rem">Fica salvo para os próximos pedidos. Troque quando quiser.</p>${addrFields(p,false)}
-    <div class="bar"><button>Salvar</button><button type="button" class="ghost" data-act="logoutc">Sair da conta</button></div></form>`;
+    <div class="bar"><button>Salvar</button><button type="button" class="ghost" data-act="logoutc">Sair da conta</button></div></form>`}`;
   else if(mode==="register")h=`<h2>Criar conta</h2><form id="rf">${f("E-mail","email","email")}${f("Celular (WhatsApp)","phone","tel")}${f("Crie uma senha (mínimo 6 letras ou números)","pw","password","",'required minlength="6"')}<p style="color:var(--mut);font-size:.85rem;margin:0 0 10px">O endereço e o nome você informa só na hora do pedido.</p><button style="width:100%">Criar conta</button><p id="aerr" style="color:var(--bad)"></p></form><p>Já tem conta? <a href="#" data-act="authmode" data-v="login" style="color:var(--rose2)">Entrar</a></p>`;
   else h=`<h2>Entrar</h2><form id="lf">${f("E-mail","email","email")}${f("Senha","pw","password")}<button style="width:100%">Entrar</button><p id="aerr" style="color:var(--bad)"></p></form><p>Primeira vez aqui? <a href="#" data-act="authmode" data-v="register" style="color:var(--rose2)">Criar conta</a></p>`;
   $("#modal").innerHTML=`<div class="modal" data-act="close"><div data-stop>${h}<p style="text-align:center"><button class="ghost" data-act="close">Fechar</button></p></div></div>`}
@@ -277,7 +289,7 @@ function waOrder(o){const l=["Olá! Acabei de fazer um pedido pelo site da "+CON
 function doneModal(o){$("#modal").innerHTML=`<div class="modal" data-act="close"><div data-stop style="text-align:center"><h2>Pedido enviado!</h2>
   <p>A loja já recebeu o seu pedido. Para agilizar, envie os detalhes também pelo WhatsApp da loja:</p>
   <p><a href="${waOrder(o)}" target="_blank" rel="noopener" style="display:block;background:#25a85a;color:#fff;text-decoration:none;border-radius:999px;padding:.8em 1.2em">Enviar pedido pelo WhatsApp</a></p>
-  <p><button class="ghost" data-act="home">Voltar ao catálogo</button></p></div></div>`}
+  <p><button data-act="track">Acompanhar meu pedido</button></p><p><button class="ghost" data-act="home">Voltar ao catálogo</button></p></div></div>`}
 
 /* ---------- admin ---------- */
 function renderAdmin(){
@@ -297,7 +309,7 @@ const dur=ms=>ms<36e5?Math.max(1,Math.round(ms/6e4))+" min":ms<48*36e5?Math.roun
 function statsView(){
   const now=Date.now(),from=S.period==="hoje"?new Date().setHours(0,0,0,0):S.period==="all"?0:now-(+S.period)*864e5;
   const t=o=>o.acceptedAt||o.createdAt;
-  const sold=S.orders.filter(o=>(o.status==="aceito"||o.status==="concluido")&&t(o)>=from);
+  const sold=S.orders.filter(o=>SOLD.includes(o.status)&&t(o)>=from);
   const rev=sold.reduce((a,o)=>a+o.total,0),cost=sold.reduce((a,o)=>a+o.items.reduce((b,i)=>b+(i.cost||0)*i.qty,0),0),profit=rev-cost;
   const units=sold.reduce((a,o)=>a+o.items.reduce((b,i)=>b+i.qty,0),0);
   const first=sold.length?Math.min(...sold.map(t)):null;
@@ -329,15 +341,63 @@ function couponModal(code){const c=S.coupons.find(x=>x.code===code)||{type:"perc
   <label>Limite de usos (opcional)</label><input name="maxUses" type="number" min="0" value="${c.maxUses||""}">
   <label style="display:flex;gap:8px;align-items:center;color:var(--ink)"><input type="checkbox" name="active" style="width:auto;margin:0" ${c.active?"checked":""}>Cupom ativo (as clientes podem usar)</label>
   <div class="bar" style="margin-top:12px"><button>Salvar</button>${code?`<button type="button" class="bad" data-act="cdel" data-id="${esc(code)}">Excluir</button>`:""}<button type="button" class="ghost" data-act="close">Cancelar</button></div></form></div></div>`}
-const ST={novo:"Novo",aceito:"Aceito",recusado:"Recusado",concluido:"Concluído"};
-function ordersView(){if(!S.sound&&S.orders.some(o=>o.status==="novo"))var hint='<p class="order">Toque em <b>Ativar som</b> para ouvir o alerta de novos pedidos.</p>';
-  return(hint||"")+(S.orders.length?S.orders.map(o=>`<div class="order ${o.status}"><div class="bar"><b>${esc(o.customer.name)}</b><span class="tag">${ST[o.status]}</span></div>
+const ST={novo:"Novo",aceito:"Aceito",preparo:"Em preparação",pronto:"Pronto para retirada",enviado:"Enviado",concluido:"Concluído",recusado:"Recusado",cancelado:"Cancelado"};
+const SOLD=["aceito","preparo","pronto","enviado","concluido"],ACTIVE=["novo","aceito","preparo","pronto","enviado"],CANCELABLE=["aceito","preparo","pronto"];
+const isPickup=o=>!!o.shipping&&(o.shipping.id==="retirada"||/retirada/i.test(o.shipping.label||""));
+const isCorreios=o=>!!o.shipping&&(["sedex","pac"].includes(o.shipping.id)||/sedex|pac|correios/i.test(o.shipping.label||""));
+const oNum=o=>"#"+String(o.id).slice(-5).toUpperCase();
+const dt=t=>new Date(t).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
+const steps=o=>{const p=isPickup(o);return[["novo","Pedido recebido"],["aceito","Pedido aceito"],["preparo","Em preparação"],p?["pronto","Pronto para retirada"]:["enviado","Enviado"],["concluido",p?"Retirado":"Entregue"]]};
+const at=(o,k)=>k==="novo"?o.createdAt:(o.statusAt&&o.statusAt[k])||(k==="aceito"?o.acceptedAt:0)||0;
+const custLabel=o=>o.status==="novo"?"Aguardando confirmação":o.status==="concluido"?(isPickup(o)?"Retirado":"Entregue"):ST[o.status]||o.status;
+const MSG=o=>({novo:"A loja ainda vai confirmar o seu pedido.",aceito:"Seu pedido foi aceito! Já já começamos a preparar.",preparo:"Estamos preparando o seu pedido com carinho.",pronto:"Já pode vir buscar na loja!",enviado:"Seu pedido saiu para envio.",concluido:isPickup(o)?"Pedido retirado. Obrigada pela compra!":"Pedido entregue. Obrigada pela compra!",recusado:"Infelizmente a loja não pôde aceitar este pedido.",cancelado:"Este pedido foi cancelado."}[o.status]||"");
+async function setSt(id,st,extra){const o=S.orders.find(x=>x.id===id);await DB.setOrder(id,{status:st,statusAt:{...((o&&o.statusAt)||{}),[st]:Date.now()},...(extra||{})})}
+
+/* --- cliente: acompanhamento e histórico --- */
+function ordCard(o){
+  const act=ACTIVE.includes(o.status),open=S.openOrd[o.id]!==undefined?S.openOrd[o.id]:act;
+  const dead=o.status==="recusado"||o.status==="cancelado",fin=o.status==="concluido";
+  const cls=fin?"st-ok":dead?"st-bad":"st-now";
+  const idx=steps(o).findIndex(s=>s[0]===o.status);
+  const tl=dead?"":`<ul class="tl">${steps(o).map(([k,l],i)=>{const t=at(o,k);return`<li class="${i<idx||(fin&&i===idx)?"done":i===idx?"now":""}">${l}${t&&i<=idx?`<small>${dt(t)}</small>`:""}</li>`}).join("")}</ul>`;
+  const det=open?`${tl}<p style="margin:6px 0">${o.items.map(i=>`${i.qty}× ${esc(i.name)}`).join("<br>")}</p>
+    <p style="margin:4px 0;color:var(--mut);font-size:.88rem">${esc(o.customer.address||"")}${o.payment?"<br>Pagamento: "+esc(o.payment.label):""}${o.coupon?"<br>Cupom "+esc(o.coupon.code)+": − "+fmt(o.coupon.discount):""}</p>`:"";
+  return`<div class="order" style="margin:10px 0"><div class="bar"><b>Pedido ${oNum(o)}</b><span class="tag ${cls}">${esc(custLabel(o))}</span></div>
+  <small style="color:var(--mut)">${new Date(o.createdAt).toLocaleDateString("pt-BR")} · ${fmt(o.total)} · ${esc(o.shipping?o.shipping.label:"")}</small>
+  <p style="margin:6px 0">${esc(MSG(o))}</p>${dead&&o.cancelReason?`<p class="note"><b>Motivo:</b> ${esc(o.cancelReason)}</p>`:""}${trkHtml(o)}${det}
+  <button type="button" class="ghost" style="padding:.3em 1em;font-size:.85rem" data-act="ordtoggle" data-id="${o.id}">${open?"Ocultar detalhes":"Ver detalhes"}</button></div>`}
+function trkHtml(o){if(!isCorreios(o)||dead(o))return"";
+  if(o.tracking)return`<div class="note"><small>Código de rastreio</small><div class="bar"><b style="font-size:1.05rem;letter-spacing:.04em">${esc(o.tracking)}</b><button type="button" style="padding:.3em 1em;font-size:.85rem" data-act="copytrk" data-v="${esc(o.tracking)}">Copiar</button></div>
+   <a href="https://rastreamento.correios.com.br/app/index.php" target="_blank" rel="noopener" style="color:var(--rose2)">Rastrear no site dos Correios</a></div>`;
+  return o.status==="enviado"?'<p class="note">Assim que a loja informar o código de rastreio, ele aparece aqui.</p>':""}
+const dead=o=>o.status==="recusado"||o.status==="cancelado";
+function myOrdersHtml(){
+  if(S.ordErr)return'<p class="empty">Não foi possível carregar seus pedidos agora. Tente novamente em instantes.</p>';
+  const L=S.myOrders;if(!L.length)return'<p class="empty">Você ainda não fez nenhum pedido.</p>';
+  const a=L.filter(o=>ACTIVE.includes(o.status)),b=L.filter(o=>!ACTIVE.includes(o.status));
+  return(a.length?`<h3 style="margin:10px 0 0">Em andamento</h3>${a.map(ordCard).join("")}`:"")+(b.length?`<h3 style="margin:14px 0 0">Histórico (${b.length})</h3>${b.map(ordCard).join("")}`:"")}
+function refreshOrders(){const el=$("#ord-list");if(el)el.innerHTML=myOrdersHtml();const t=$("#ord-tab");if(t)t.textContent="Meus pedidos ("+S.myOrders.length+")"}
+
+/* --- painel da loja --- */
+function orderCard(o){const pk=isPickup(o);
+  const btn=({
+    novo:`<button class="ok" data-act="accept" data-id="${o.id}">Aceitar</button> <button class="bad" data-act="refuse" data-id="${o.id}">Recusar</button>`,
+    aceito:`<button data-act="prep" data-id="${o.id}">Iniciar preparação</button>`,
+    preparo:pk?`<button data-act="ready" data-id="${o.id}">Pronto para retirada</button>`:`<button data-act="sent" data-id="${o.id}">Saiu para envio</button>`,
+    pronto:`<button data-act="done" data-id="${o.id}">Marcar como retirado</button>`,
+    enviado:(isCorreios(o)?`<button class="ghost" data-act="settrk" data-id="${o.id}">${o.tracking?"Editar":"Colocar"} código de rastreio</button> `:"")+`<button data-act="done" data-id="${o.id}">Marcar como entregue</button>`
+  }[o.status]||"")+(CANCELABLE.includes(o.status)?` <button class="ghost" data-act="cancel" data-id="${o.id}">Cancelar pedido</button>`:"");
+  return`<div class="order ${o.status}"><div class="bar"><b>${esc(o.customer.name)} <small style="color:var(--mut)">${oNum(o)}</small></b><span class="tag">${esc(ST[o.status]||o.status)}</span></div>
   <small>${new Date(o.createdAt).toLocaleString("pt-BR")} · <a href="https://wa.me/55${String(o.customer.phone).replace(/\D/g,"").replace(/^55/,"")}" target="_blank">${esc(o.customer.phone)}</a></small>
   <p style="margin:6px 0">${o.items.map(i=>`${i.qty}× ${esc(i.name)}`).join("<br>")}</p>
-  <p style="margin:4px 0"><b>${esc(o.shipping?o.shipping.label:"")}</b><br>${esc(o.customer.address)}${o.payment?"<br>Pagamento: <b>"+esc(o.payment.label)+"</b>":""}${o.coupon?"<br>Cupom: <b>"+esc(o.coupon.code)+"</b> (− "+fmt(o.coupon.discount)+")":""}${o.customer.notes?`<br><i>${esc(o.customer.notes)}</i>`:""}</p>
-  <div class="bar"><b>${fmt(o.total)}</b><span>
-  ${o.status==="novo"?`<button class="ok" data-act="accept" data-id="${o.id}">Aceitar</button> <button class="bad" data-act="refuse" data-id="${o.id}">Recusar</button>`:""}
-  ${o.status==="aceito"?`<button data-act="done" data-id="${o.id}">Concluir</button>`:""}</span></div></div>`).join(""):'<p class="empty">Nenhum pedido ainda.</p>')}
+  <p style="margin:4px 0"><b>${esc(o.shipping?o.shipping.label:"")}</b><br>${esc(o.customer.address)}${o.payment?"<br>Pagamento: <b>"+esc(o.payment.label)+"</b>":""}${o.coupon?"<br>Cupom: <b>"+esc(o.coupon.code)+"</b> (− "+fmt(o.coupon.discount)+")":""}${o.customer.notes?`<br><i>${esc(o.customer.notes)}</i>`:""}${o.cancelReason?`<br>Motivo do cancelamento: <b>${esc(o.cancelReason)}</b>`:""}${o.tracking?`<br>Rastreio: <b>${esc(o.tracking)}</b>`:""}</p>
+  <div class="bar"><b>${fmt(o.total)}</b><span>${btn}</span></div></div>`}
+function ordersView(){
+  const hint=(!S.sound&&S.orders.some(o=>o.status==="novo"))?'<p class="order">Toque em <b>Ativar som</b> para ouvir o alerta de novos pedidos.</p>':"";
+  const flt=o=>S.of==="todos"||(S.of==="ativos"?ACTIVE.includes(o.status):!ACTIVE.includes(o.status));
+  const list=S.orders.filter(flt),nA=S.orders.filter(o=>ACTIVE.includes(o.status)).length;
+  const tabs=`<div class="tabs">${[["ativos","Em andamento ("+nA+")"],["finalizados","Finalizados"],["todos","Todos"]].map(([k,l])=>`<button data-act="ofilter" data-v="${k}" class="${S.of===k?"on":""}">${l}</button>`).join("")}</div>`;
+  return hint+tabs+(list.length?list.map(orderCard).join(""):'<p class="empty">Nenhum pedido aqui.</p>')}
 function productsView(){return`<button data-act="edit" data-id="">+ Novo produto</button><div class="grid" style="margin-top:14px">${S.products.map(p=>`<article class="card">${p.img?`<img src="${p.img}" alt="">`:'<div class="ph"></div>'}
   <div class="b"><div class="n">${esc(p.name)}</div><div class="p">${fmt(p.price)}</div><div class="q">${esc(p.category)} · estoque ${p.qty}${p.cost!=null?" · lucro "+fmt(p.price-unitCost(p)):""}</div>
   <button class="ghost" data-act="edit" data-id="${p.id}">Editar</button></div></article>`).join("")}</div>`}
@@ -393,7 +453,7 @@ document.addEventListener("click",async e=>{
   if(a==="ctoggle"){const c=S.coupons.find(x=>x.code===id);await DB.saveCoupon({...c,active:!c.active})}
   if(a==="cdel"&&confirm("Excluir este cupom?")){await DB.delCoupon(id);$("#modal").innerHTML=""}
   if(a==="clearq"){S.q="";render()}
-  if(a==="acct"){S.after=false;if(S.admin){S.adminView=true;render();window.scrollTo(0,0)}else authModal("login")}
+  if(a==="acct"){S.after=false;if(S.admin){S.adminView=true;render();window.scrollTo(0,0)}else{if(cust())S.acctTab=S.myOrders.length?"pedidos":"dados";authModal("login")}}
   if(a==="auth"){S.after=true;authModal(v)}
   if(a==="chpw"){try{await DB.changePassword(S.user)}catch(x){alert(authErr(x))}}
   if(a==="authmode")authModal(v);
@@ -404,9 +464,26 @@ document.addEventListener("click",async e=>{
   if(a==="logout"){await DB.logout();S.adminView=false;render()}
   if(a==="edit")prodModal(id);
   if(a==="del"&&confirm("Excluir este produto?")){await DB.delProduct(id);$("#modal").innerHTML=""}
-  if(a==="accept"){const o=S.orders.find(x=>x.id===id);await DB.setOrder(id,{status:"aceito",acceptedAt:Date.now()});if(!o.reserved)for(const i of o.items)await DB.stock(i.id,-i.qty,i.vid)}
-  if(a==="refuse"){const o=S.orders.find(x=>x.id===id);if(o.status==="novo"){await DB.setOrder(id,{status:"recusado"});if(o.reserved)for(const i of o.items)await DB.stock(i.id,i.qty,i.vid,-i.qty);if(o.coupon)await DB.couponUses(o.coupon.code,-1)}}
-  if(a==="done")await DB.setOrder(id,{status:"concluido"});
+  if(a==="atab"){S.acctTab=v;authModal("login")}
+  if(a==="track"){S.acctTab="pedidos";S.after=false;authModal("login")}
+  if(a==="ordtoggle"){const o=S.myOrders.find(x=>x.id===id),cur=S.openOrd[id]!==undefined?S.openOrd[id]:!!(o&&ACTIVE.includes(o.status));S.openOrd[id]=!cur;refreshOrders()}
+  if(a==="ofilter"){S.of=v;render()}
+  if(a==="accept"){const o=S.orders.find(x=>x.id===id);await setSt(id,"aceito",{acceptedAt:Date.now()});if(!o.reserved)for(const i of o.items)await DB.stock(i.id,-i.qty,i.vid)}
+  if(a==="refuse"){const o=S.orders.find(x=>x.id===id);if(o.status==="novo"){await setSt(id,"recusado");if(o.reserved)for(const i of o.items)await DB.stock(i.id,i.qty,i.vid,-i.qty);if(o.coupon)await DB.couponUses(o.coupon.code,-1)}}
+  if(a==="prep")await setSt(id,"preparo");
+  if(a==="ready")await setSt(id,"pronto");
+  if(a==="sent"){const o=S.orders.find(x=>x.id===id),x={};
+    if(isCorreios(o)){const c=prompt("Código de rastreio dos Correios (ex.: AB123456789BR).\nA cliente vai ver e poder copiar.\nDeixe em branco para colocar depois.","");if(c===null)return;x.tracking=c.replace(/\s/g,"").toUpperCase()}
+    await setSt(id,"enviado",x)}
+  if(a==="settrk"){const o=S.orders.find(x=>x.id===id),c=prompt("Código de rastreio dos Correios:",o.tracking||"");if(c===null)return;await DB.setOrder(id,{tracking:c.replace(/\s/g,"").toUpperCase()});toast("Código salvo")}
+  if(a==="copytrk"){try{await navigator.clipboard.writeText(v)}catch(x){const i=document.createElement("input");i.value=v;document.body.appendChild(i);i.select();document.execCommand("copy");i.remove()}toast("Código copiado")}
+  if(a==="done")await setSt(id,"concluido");
+  if(a==="cancel"){const o=S.orders.find(x=>x.id===id);if(!o||!CANCELABLE.includes(o.status))return;
+    const why=prompt("Cancelar o pedido de "+o.customer.name+"?\n\nEscreva o motivo (a cliente vai ver) e toque em OK para confirmar. Toque em Cancelar para voltar.\n\nLembrete: se ela já pagou, o reembolso você faz por fora.","");
+    if(why===null)return;
+    await setSt(id,"cancelado",{cancelReason:why.trim()});
+    for(const i of o.items)await DB.stock(i.id,i.qty,i.vid,o.reserved?-i.qty:0);
+    if(o.coupon)await DB.couponUses(o.coupon.code,-1)}
 });
 document.addEventListener("change",e=>{if(e.target.name==="ship")setAddr()});
 document.addEventListener("input",async e=>{const t=e.target;if(t.name!=="cep")return;const v=t.value.replace(/\D/g,"").slice(0,8);t.value=v.length>5?v.slice(0,5)+"-"+v.slice(5):v;
@@ -430,7 +507,7 @@ document.addEventListener("submit",async e=>{e.preventDefault();const f=e.target
   if(f.id==="co"){const sh=CONFIG.shipping.find(o=>o.id===d.ship),pay=CONFIG.payments.find(o=>o.id===d.pay);
     const need=!!sh.addr;
     const items=Object.entries(S.cart).map(([k,q])=>{const[id,v]=k.split("|"),p=S.products.find(x=>x.id===id);return{id,vid:v||"",pname:p.name,name:p.name+(v?" ("+COLORS[v].n+")":""),price:p.price,qty:q,cost:Math.round(unitCost(p)*100)/100}});
-    const sub=items.reduce((a,i)=>a+i.price*i.qty,0),{d:disc}=calcCoupon(sub);const ord={createdAt:Date.now(),status:"novo",uid:S.user.uid,email:S.user.email,customer:{name:d.name,phone:d.phone,address:need?fmtAddr(d):"Retirada na loja",notes:d.notes},shipping:{label:sh.label},payment:{id:pay.id,label:pay.label},items,subtotal:sub,coupon:S.coupon&&disc>0?{code:S.coupon.code,type:S.coupon.type,value:S.coupon.value,discount:disc}:null,total:Math.round((sub-disc)*100)/100};await DB.placeOrder(ord);S.coupon=null;
+    const sub=items.reduce((a,i)=>a+i.price*i.qty,0),{d:disc}=calcCoupon(sub);const ord={createdAt:Date.now(),status:"novo",uid:S.user.uid,email:S.user.email,customer:{name:d.name,phone:d.phone,address:need?fmtAddr(d):"Retirada na loja",notes:d.notes},shipping:{id:sh.id,label:sh.label},payment:{id:pay.id,label:pay.label},items,subtotal:sub,coupon:S.coupon&&disc>0?{code:S.coupon.code,type:S.coupon.type,value:S.coupon.value,discount:disc}:null,total:Math.round((sub-disc)*100)/100};await DB.placeOrder(ord);S.coupon=null;
     const pr=need?pickProfile(d):{name:d.name,phone:d.phone};try{await DB.saveProfile(S.user,pr);S.profile={...S.profile,...pr}}catch(x){}
     S.cart={};render();doneModal(ord)}
   if(f.id==="pf"){const vars=["dourado","prata"].filter(c=>d["v"+c]!=="").map(c=>({id:c,n:COLORS[c].n,q:+d["v"+c]||0}));await DB.saveProduct({id:f.dataset.id||undefined,name:d.name,price:+d.price,qty:vars.length?vars.reduce((a,x)=>a+x.q,0):(+d.qty||0),desc:d.desc||"",vars,sold:((S.products.find(x=>x.id===f.dataset.id)||{}).sold)||0,category:d.category.trim(),img:d.img,cost:+d.cost||0,pack:+d.pack||0,tag:+d.tag||0,other:+d.other||0,fee:+d.fee||0,margin:+d.margin||0,createdAt:+f.dataset.created||Date.now()});$("#modal").innerHTML=""}
@@ -443,7 +520,8 @@ window.addEventListener("hashchange",render);
 (async()=>{
   try{await DB.init()}catch(e){$("#app").innerHTML='<p class="empty">Não foi possível conectar ao Firebase. Confira o firebaseConfig.</p>';return}
   DB.onProducts(p=>{S.products=p;render()});
-  let ordersOn=false;DB.onAuth(async u=>{S.user=u;S.admin=isAdm(u);if(!u)S.profile=null;
+  let ordersOn=false,unsubMy=null;DB.onAuth(async u=>{S.user=u;S.admin=isAdm(u);if(!u)S.profile=null;
+    if(unsubMy){unsubMy();unsubMy=null}S.myOrders=[];S.ordErr=false;if(u&&!S.admin)unsubMy=DB.onMyOrders(u.uid,o=>{S.ordErr=!o;S.myOrders=o||[];refreshOrders()});
     if(S.admin&&!ordersOn){ordersOn=true;DB.onOrders(o=>{S.orders=o;render()});DB.onCoupons(c=>{S.coupons=c;render()})}
     render();if(u&&!S.admin){try{const pr=await DB.profile(u);if(pr){S.profile=pr;render()}}catch(e){}}});
 })();
